@@ -9,9 +9,17 @@ import sqlite3
 
 from flask import Flask, g, jsonify, request
 
+import jwt
+
+from datetime import datetime, timedelta
+
+from werkzeug.security import check_password_hash
+import os
+
 DATABASE = "recipes.db"
 
 app = Flask(__name__)
+app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "dev-secret-change-me")
 
 
 def get_db():
@@ -62,6 +70,29 @@ def get_recipe(recipe_id):
 
 @app.post("/recipes")
 def create_recipe():
+    print("RAW AUTH HEADER:", request.headers.get("Authorization", ""))
+    auth_header = request.headers.get("Authorization", "")
+
+    if not auth_header.lower().startswith("bearer "):
+        return jsonify({"error": "Missing or invalid token"}), 401
+
+    token = auth_header.split(" ", 1)[1]
+
+    try:
+        payload = jwt.decode(
+            token,
+            app.config["JWT_SECRET_KEY"],
+            algorithms=["HS256"],
+        )
+        print("DECODED PAYLOAD:", payload)
+    except jwt.InvalidTokenError as e:
+        print("JWT ERROR:", repr(e))
+        return jsonify({"error": "Invalid token"}), 401
+
+    user_id = payload.get("sub")
+    username = payload.get("username")
+    print("AUTH USER:", user_id, username)
+    
     data = request.get_json(silent=True)
     if not data or not data.get("title") or not data.get("ingredients"):
         return jsonify({"error": "title and ingredients are required"}), 400
@@ -126,6 +157,53 @@ def delete_recipe(recipe_id):
     if cur.rowcount == 0:
         return jsonify({"error": "recipe not found"}), 404
     return "", 204
+
+@app.post("/login")
+def login():
+    data = request.get_json(silent=True) or {}
+    username = data.get("username")
+    password = data.get("password")
+
+    if not username or not password:
+        return jsonify({"error": "username and password required"}), 400
+
+    db = get_db()
+    user = db.execute(
+        "SELECT id, username, password_hash FROM users WHERE username = ?",
+        (username,),
+    ).fetchone()
+
+    def auth_failed():
+        return jsonify({"error": "invalid username or password"}), 401
+
+    if user is None:
+        return auth_failed()
+
+    if not check_password_hash(user["password_hash"], password):
+        return auth_failed()
+
+    payload = {
+        "sub": str(user["id"]),
+        "username": user["username"],
+        "exp": datetime.utcnow() + timedelta(hours=1),
+    }
+
+    token = jwt.encode(
+        payload,
+        app.config["JWT_SECRET_KEY"],
+        algorithm="HS256",
+    )
+        
+
+    return jsonify({
+        "token": token,
+    }), 200
+
+def current_user_id():
+    token = request.headers.get("Authorization", "")
+    if token.startswith("user-"):
+        return int(token[len("user-"):])
+    return None
 
 
 if __name__ == "__main__":
