@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, request
 from sqlite3 import IntegrityError
 from app.services.recipe_service import (create_recipe_for_user, list_recipes as list_recipes_service, get_recipe_by_id, update_recipe_for_user, delete_recipe_for_user)
+from app.services.rating_service import create_rating_for_recipe
 from app.helpers import require_auth, recipe_to_dict
 from app.extensions import cache
 
@@ -83,4 +84,18 @@ def delete_recipe(recipe_id):
         return jsonify({"error": "forbidden: not the owner"}), 403
 
     return "", 204
+
+@recipes_bp.post("/<int:recipe_id>/ratings")
+def create_rating(recipe_id):
+    print("DEBUG: entering create_rating")
+    auth_result = require_auth()
+    if isinstance(auth_result, tuple) and len(auth_result) == 2:
+        print("DEBUG auth_result:", auth_result, type(auth_result[0]))
+        return auth_result
+    user_id, username, role = auth_result
+    data = request.get_json(silent=True) or {}
+    body, status = create_rating_for_recipe(recipe_id, user_id, data)
+
+    return jsonify(body), status
+
 
