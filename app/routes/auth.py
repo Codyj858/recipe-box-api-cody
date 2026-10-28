@@ -2,8 +2,6 @@ from flask import Blueprint, jsonify, request, current_app
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 from datetime import datetime, timedelta
-import sqlite3
-from app.db import get_db
 from app.services.auth_service import register_user, login_user
 from app.helpers import require_auth
 
