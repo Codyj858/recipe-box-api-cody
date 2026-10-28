@@ -4,6 +4,8 @@ import jwt
 
 
 def require_auth():
+    print("DEBUG: in require_auth")
+
     auth_header = request.headers.get("Authorization", "")
 
     if not auth_header.lower().startswith("bearer "):

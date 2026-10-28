@@ -7,15 +7,14 @@ That is the point: you will add both, lesson by lesson, in Units 2 and 3.
 
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask import Flask, jsonify, request, current_app
-import jwt
 from datetime import datetime, timedelta, timezone
 from werkzeug.security import check_password_hash
-import os
 from config import DevelopmentConfig, TestingConfig, ProductionConfig
 from app.routes.recipes import recipes_bp
 from app.helpers import require_auth, recipe_to_dict
 from app.routes.auth import auth_bp
-from app.extensions import db, migrate, cache
+from app.extensions import db, migrate, cache, limiter
+
 
 DATABASE = "recipes.db"
 
@@ -34,6 +33,7 @@ def create_app(config_name):
     db.init_app(app)
     migrate.init_app(app, db)
     cache.init_app(app)
+    limiter.init_app(app)
 
 
     from app import models
