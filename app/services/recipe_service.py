@@ -1,43 +1,121 @@
-import sqlite3
-from app.db import get_db
 from app.helpers import recipe_to_dict
 from app.data.auth_data import count_recipes
+from app.extensions import db, cache
+from app.models import Recipe
+from flask import request, current_app
+import jwt
+from sqlalchemy.exc import IntegrityError
 
 def create_recipe_for_user(user_id, data):
-    db = get_db()
+    instructions = data.get("instructioins", "")
+    is_public_value = 1 if data.get("is_public", True) else 0
+
+    recipe = Recipe(
+        title=data["title"],
+        ingredients=data["ingredients"],
+        instructions=instructions,
+        is_public=is_public_value,
+        owner_id=user_id,
+    )
+
+    db.session.add(recipe)
+    db.session.commit()
+    cache.delete("recipes_list")
+
+    return {
+        "id": recipe.id,
+        "title": recipe.title,
+        "ingredients": recipe.ingredients,
+        "instructions": recipe.instructions,
+        "is_public": recipe.is_public,
+        "owner_id": recipe.owner_id,
+    }
+
+def update_recipe_for_user(recipe_id, user_id, role, data):
+    recipe = Recipe.query.filter_by(id=recipe_id).first()
+
+    if recipe is None:
+        print("DEBUG: recipe is None")
+        return None
+    print("DEBUG owner_id/user_id/role:", recipe.owner_id, user_id, role)
+    print("DEBUG: passing ownership check")
+    recipe_owner_username = recipe.owner.username
+    
+
+    user_id = int(user_id)
+
+    if role != "admin" and recipe.owner_id != user_id:
+        return "forbidden"
+
+    recipe.title = data.get("title", recipe.title)
+    recipe.ingredients = data.get("ingredients", recipe.ingredients)
+    recipe.instructions = data.get("instructions", recipe.instructions)
+    if "is_public" in data:
+        recipe.is_public = 1 if data["is_public"] else 0
+
     try:
-        cur = db.execute(
-            "INSERT INTO recipes (title, ingredients, instructions, is_public, owner_id)"
-            " VALUES (?, ?, ?, ?, ?)",
-            (
-                data["title"],
-                data["ingredients"],
-                data.get("instructions", ""),
-                1 if data.get("is_public", True) else 0,
-                user_id,
-            ),
-        )
-        db.commit()
-    except sqlite3.IntegrityError:
-        raise
-    row = db.execute(
-        "SELECT * FROM recipes WHERE id = ?", (cur.lastrowid,)
-    ).fetchone()
-    return recipe_to_dict(row)
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return "conflict"
+    cache.delete("recipes_list")
+
+
+    return {
+        "id": recipe.id,
+        "title": recipe.title,
+        "ingredients": recipe.ingredients,
+        "instructions": recipe.instructions,
+        "is_public": recipe.is_public,
+        "owner_id": recipe.owner_id,
+    }
+
+def delete_recipe_for_user(recipe_id, user_id):
+    recipe = Recipe.query.filter_by(id=recipe_id).first()
+    if recipe is None:
+        return None
+
+    if str(recipe.owner_id) != str(user_id):
+        return "forbidden"
+
+    db.session.delete(recipe)
+    db.session.commit()
+    cache.delete("recipes_list")
+    return True
 
 def list_recipes():
-    db = get_db()
-    rows = db.execute("SELECT * FROM recipes ORDER BY id").fetchall()
-    return [recipe_to_dict(r) for r in rows]
+    recipes = (
+        db.session.query(Recipe)
+        .order_by(Recipe.id)
+        .all()
+    )
+    return [
+        {
+        "id": r.id,
+        "title": r.title,
+        "ingredients": r.ingredients,
+        "instructions": r.instructions,
+        "is_public": r.is_public,
+        "owner_id": r.owner_id,
+        }
+        for r in recipes
+    ]
 
-def get_recipe_by_id(recipe_id):
-    db = get_db()
-    row = db.execute(
-        "SELECT * FROM recipes WHERE id = ?", (recipe_id,)
-    ).fetchone()
-    return recipe_to_dict(row) if row is not None else None
+def get_recipe_by_id(recipe_id: int):
+    recipe = (
+        db.session.query(Recipe)
+        .filter(Recipe.id == recipe_id)
+        .first()
+    )
+    if recipe is None:
+        return None
 
-def get_recipe_count():
-    db = get_db()
-    count = count_recipes(db)
-    return {"count": count}, 200
+    return {
+        "id": recipe.id,
+        "title": recipe.title,
+        "ingredients": recipe.ingredients,
+        "instructions": recipe.instructions,
+        "is_public": recipe.is_public,
+        "owner_id": recipe.owner_id,
+    }
+    

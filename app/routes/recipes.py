@@ -1,17 +1,19 @@
 from flask import Blueprint, jsonify, request
-import sqlite3
-from app.services.recipe_service import (create_recipe_for_user, list_recipes as list_recipes_service, get_recipe_by_id, get_recipe_count )
+from sqlite3 import IntegrityError
+from app.services.recipe_service import (create_recipe_for_user, list_recipes as list_recipes_service, get_recipe_by_id, update_recipe_for_user, delete_recipe_for_user)
 from app.helpers import require_auth, recipe_to_dict
+from app.extensions import cache
 
 
 recipes_bp = Blueprint("recipes", __name__)
 
 @recipes_bp.get("")
+@cache.cached(timeout=30, key_prefix="recipes_list")
 def list_recipes():
         rows = list_recipes_service()
         return jsonify(rows)
 
-@recipes_bp.get("/recipes/<int:recipe_id>")
+@recipes_bp.get("/<int:recipe_id>")
 def get_recipe(recipe_id):
         recipe = get_recipe_by_id(recipe_id)
         if recipe is None:
@@ -21,108 +23,64 @@ def get_recipe(recipe_id):
 
 @recipes_bp.post("")
 def create_recipe():
-        from app.db import get_db
-        auth_result = require_auth()
-        if isinstance(auth_result, tuple):
-            user_id, username, role = auth_result
-        else:
-            return auth_result
-        
-        data = request.get_json(silent=True)
-        if not data or not data.get("title") or not data.get("ingredients"):
-            return jsonify({"error": "title and ingredients are required"}), 400
+    auth_result = require_auth()
+    if not isinstance(auth_result, tuple):
+        return auth_result
+    if len(auth_result) == 2:
+        return auth_result
+    user_id, username, role = auth_result
 
-        try:
-            recipe_dict = create_recipe_for_user(user_id, data)
-        except sqlite3.IntegrityError:
-            return jsonify({"error": "a recipe with that title already exists"}), 409
+    data = request.get_json(silent=True)
+    if not data or not data.get("title") or not data.get("ingredients"):
+        return jsonify({"error": "title and ingredients are required"}), 400
 
-        return jsonify(recipe_dict), 201
+    try:
+        recipe_dict = create_recipe_for_user(user_id, data)
+    except IntegrityError:
+        return jsonify({"error": "a recipe with that title already exists"}), 409
+
+    return jsonify(recipe_dict), 201
 
 
-@recipes_bp.patch("/recipes/<int:recipe_id>")
+@recipes_bp.patch("/<int:recipe_id>")
 def update_recipe(recipe_id):
-        from app.db import get_db
-        auth_result = require_auth()
-        if isinstance(auth_result, tuple):
-            user_id, username, role = auth_result
-        else:
-            return auth_result
+    print("DEBUG route reached, recipe_id:", recipe_id)
+    auth_result = require_auth()
+    if not isinstance(auth_result, tuple):
+        return auth_result
+    if len(auth_result) == 2:
+        return auth_result
+    user_id, username, role = auth_result
 
-        data = request.get_json(silent=True)
-        if not data:
-            return jsonify({"error": "a JSON body is required"}), 400
-        fields, values = [], []
-        for column in ("title", "ingredients", "instructions"):
-            if column in data:
-                fields.append(f"{column} = ?")
-                values.append(data[column])
-        if "is_public" in data:
-            fields.append("is_public = ?")
-            values.append(1 if data["is_public"] else 0)
-        if not fields:
-            return jsonify({"error": "nothing to update"}), 400
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"error": "a JSON body is required"}), 400
 
-        db = get_db()
+    result = update_recipe_for_user(recipe_id, user_id, role, data)
+    print("DEBUG result value and type:", result, type(result))  # note: recipe_id first, user_id second
+    if result is None:
+        return jsonify({"error": "recipe not found"}), 404
+    if result == "forbidden":
+        return jsonify({"error": "forbidden: not the owner"}), 403
+    if result == "conflict":
+        return jsonify({"error": "a recipe with that title already exists"}), 409
+    return jsonify(result)
 
-        # 1) load existing recipe
-        existing = db.execute(
-            "SELECT * FROM recipes WHERE id = ?",
-            (recipe_id,),
-        ).fetchone()
-        if existing is None:
-            return jsonify({"error": "recipe not found"}), 404
 
-        # 2) ownership check
-        if str(existing["owner_id"]) != str(user_id) and role != "admin":
-            return jsonify({"error": "forbidden: not the owner"}), 403
-
-        # 3) proceed with update
-        values.append(recipe_id)
-        try:
-            cur = db.execute(
-                f"UPDATE recipes SET {', '.join(fields)} WHERE id = ?",
-                values,
-            )
-            db.commit()
-        except sqlite3.IntegrityError:
-            return jsonify({"error": "a recipe with that title already exists"}), 409
-        if cur.rowcount == 0:
-            return jsonify({"error": "recipe not found"}), 404
-        row = db.execute(
-            "SELECT * FROM recipes WHERE id = ?", (recipe_id,)
-        ).fetchone()
-        return jsonify(recipe_to_dict(row))
-
-@recipes_bp.delete("/recipes/<int:recipe_id>")
+@recipes_bp.delete("/<int:recipe_id>")
 def delete_recipe(recipe_id):
-        from app.db import get_db
-        auth_result = require_auth()
-        if isinstance(auth_result, tuple):
-            user_id, username, role = auth_result
-        else:
-            return auth_result
+    auth_result = require_auth()
+    if not isinstance(auth_result, tuple):
+        return auth_result
+    if len(auth_result) == 2:
+        return auth_result
+    user_id, username, role = auth_result
 
-        db = get_db()
+    result = delete_recipe_for_user(recipe_id, user_id)
+    if result is None:
+        return jsonify({"error": "recipe not found"}), 404
+    if result == "forbidden":
+        return jsonify({"error": "forbidden: not the owner"}), 403
 
-        # load existing recipe
-        existing = db.execute(
-            "SELECT * FROM recipes WHERE id = ?",
-            (recipe_id,),
-        ).fetchone()
-        if existing is None:
-            return jsonify({"error": "recipe not found"}), 404
+    return "", 204
 
-        # ownership check
-        if str(existing["owner_id"]) != str(user_id) and role != "admin":
-            return jsonify({"error": "forbidden: not the owner"}), 403
-
-        # perform delete
-        cur = db.execute("DELETE FROM recipes WHERE id = ?", (recipe_id,))
-        db.commit()
-        return "", 204
-
-@recipes_bp.get("/count")
-def recipe_count():
-     body, status = get_recipe_count()
-     return jsonify(body), status
