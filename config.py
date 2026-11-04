@@ -11,6 +11,7 @@ class Config:
 
 
 class DevelopmentConfig(Config):
+    SLOW_SERVICE_BASE_URL = "http://127.0.0.1:5001"
     DEBUG = os.getenv("FLASK_DEBUG", "1") == "1"
     DATABASE = os.path.join(basedir, "recipes.db")
     SQLALCHEMY_DATABASE_URI = "sqlite:///" + os.path.join(basedir, "recipes.db")

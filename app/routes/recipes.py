@@ -1,12 +1,30 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, current_app
 from sqlite3 import IntegrityError
 from app.services.recipe_service import (create_recipe_for_user, list_recipes as list_recipes_service, get_recipe_by_id, update_recipe_for_user, delete_recipe_for_user)
 from app.services.rating_service import create_rating_for_recipe
 from app.helpers import require_auth, recipe_to_dict
 from app.extensions import cache
+import httpx
+import asyncio
 
 
 recipes_bp = Blueprint("recipes", __name__)
+
+
+@recipes_bp.get("/async-slow")
+async def async_slow():
+    base_url = current_app.config["SLOW_SERVICE_BASE_URL"]
+    async with httpx.AsyncClient(base_url=base_url) as client:
+        calls = [
+            client.get("/slow"),
+            client.get("/slow"),
+            ]
+        responses = await asyncio.gather(*calls)
+    return jsonify({
+        "statuses": [r.status_code for r in responses]
+    })
+
+
 
 @recipes_bp.get("")
 @cache.cached(timeout=30, key_prefix="recipes_list")
