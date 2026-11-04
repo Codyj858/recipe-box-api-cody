@@ -14,16 +14,41 @@ recipes_bp = Blueprint("recipes", __name__)
 @recipes_bp.get("/async-slow")
 async def async_slow():
     base_url = current_app.config["SLOW_SERVICE_BASE_URL"]
-    async with httpx.AsyncClient(base_url=base_url) as client:
+    async with httpx.AsyncClient(base_url=base_url, timeout=1.2) as client:
         calls = [
-            client.get("/slow"),
-            client.get("/slow"),
+            client.get("/nutrition/eggs"),
+            client.get("/nutrition/bacon"),
             ]
-        responses = await asyncio.gather(*calls)
+        try:
+            responses = await asyncio.gather(*calls)
+            statuses = [r.status_code for r in responses]
+            fallback = False
+            reason = None
+        except (httpx.TimeoutException, httpx.RequestError):
+            statuses = [None, None]
+            fallback = True
+            reason = "nutrition service timeout or unavailable"
+        return jsonify({
+            "statuses": statuses,
+            "fallback": fallback,
+            "reason": reason,
+        })
+
+    
     return jsonify({
         "statuses": [r.status_code for r in responses]
     })
 
+@recipes_bp.get("/async-sequential")
+async def async_sequential():
+    base_url = current_app.config["SLOW_SERVICE_BASE_URL"]
+    async with httpx.AsyncClient(base_url=base_url) as client:
+        r1 = await client.get("/nutrition/eggs")
+        r2 = await client.get("/nutrition/bacon")
+        responses = [r1, r2]
+    return jsonify({
+        "statuses": [r.status_code for r in responses]
+    })
 
 
 @recipes_bp.get("")
