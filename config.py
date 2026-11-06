@@ -25,3 +25,7 @@ class TestingConfig(Config):
 class ProductionConfig(Config):
     DEBUG = os.getenv("FLASK_DEBUG", "1") == "1"
     SQLALCHEMY_DATABASE_URI = "sqlite:///recipes.db"
+
+class UsersDevelopmentConfig(Config):
+    DEBUG = os.getenv("FLASK_DEBUG", "1") == "1"
+    SQLALCHEMY_DATABASE_URI = "sqlite:///" + os.path.join(basedir, "users.db")
