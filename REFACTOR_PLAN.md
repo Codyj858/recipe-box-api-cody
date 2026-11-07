@@ -52,3 +52,11 @@ recipe-box-api/
 
 - Responsibilities in app.py: 8
 - Acceptance list items: 6
+
+
+Users service owns users table.
+
+Recipes service owns recipes, ratings.
+
+Old User.recipes / Recipe.owner relationship removed; replaced by owner_id + JWT sub check.
+

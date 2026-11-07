@@ -3,7 +3,6 @@ from app.data.auth_data import count_recipes
 from app.extensions import db, cache
 from app.models import Recipe
 from flask import request, current_app
-import jwt
 from sqlalchemy.exc import IntegrityError
 
 def create_recipe_for_user(user_id, data):

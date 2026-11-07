@@ -1,10 +1,4 @@
-"""Recipe Box API — BE104 course skeleton.
-
-A working Flask + SQLite CRUD API for recipes. It stores data perfectly —
-and it trusts everyone. There is no authentication and no authorization yet.
-That is the point: you will add both, lesson by lesson, in Units 2 and 3.
-"""
-
+import httpx
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask import Flask, jsonify, request, current_app
 from datetime import datetime, timedelta, timezone
@@ -14,6 +8,7 @@ from app.routes.recipes import recipes_bp
 from app.helpers import require_auth, recipe_to_dict
 from app.routes.auth import auth_bp
 from app.extensions import db, migrate, cache, limiter
+import asyncio
 
 
 DATABASE = "recipes.db"
@@ -36,15 +31,36 @@ def create_app(config_name):
     limiter.init_app(app)
 
 
-    from app import models
-
 
     @app.get("/")
     def hello():
         return jsonify({"message": "Recipe Box API", "recipes": "/recipes"})
 
+    @app.get("/me")
+    async def me():
+        auth_header = request.headers.get("Authorization")
+        async with httpx.AsyncClient() as client:
+            users_call = client.get("http://localhost:5001/health", headers={"Authorization": auth_header} if auth_header else {}, timeout=0.5, )
+            recipes_call = client.get("http://localhost:5002/recipes", timeout=0.5,)
+            users_resp, recipes_resp = await asyncio.gather(users_call, recipes_call, return_exceptions=False)
+
+            users_ok = users_resp.status_code == 200
+            recipes_ok = recipes_resp.status_code == 200
+
+            return jsonify({
+                "completeness": {
+                    "users": "ok" if users_ok else "missing",
+                    "recipes": "ok" if recipes_ok else "missing",
+                },
+                    "users": users_resp.json() if users_ok else None,
+                    "recipes": recipes_resp.json() if recipes_ok else None,
+            }), 200
+
+
     app.register_blueprint(auth_bp)
     app.register_blueprint(recipes_bp, url_prefix="/recipes")
+
+
     
 
 

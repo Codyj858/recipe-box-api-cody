@@ -2,7 +2,6 @@ import sqlite3
 from flask import g, jsonify, request, current_app
 import jwt
 
-
 def require_auth():
     print("DEBUG: in require_auth")
 

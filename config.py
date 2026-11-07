@@ -6,6 +6,7 @@ class Config:
     JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
     if not JWT_SECRET_KEY:
         raise RuntimeError("JWT_SECRET_KEY environment variable is required")
+    INTERNAL_SERVICE_TOKEN = os.environ.get("INTERNAL_SERVICE_TOKEN")
     CACHE_TYPE = "SimpleCache"
     CACHE_DEFAULT_TIMEOUT = 60
 

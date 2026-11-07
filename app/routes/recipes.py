@@ -54,6 +54,19 @@ async def async_sequential():
 @recipes_bp.get("")
 @cache.cached(timeout=30, key_prefix="recipes_list")
 def list_recipes():
+        auth_result = require_auth()
+        if isinstance(auth_result, tuple) and isinstance(auth_result[1], int):
+            return auth_result  # e.g. (json, 401)
+        
+        user_id, username, role = auth_result
+        service_token = request.headers.get("X-Internal-Service-Token")
+        expected = current_app.config["INTERNAL_SERVICE_TOKEN"]
+
+        if service_token is None:
+            return jsonify({"error": "missing service token"}), 403
+
+        if service_token != expected:
+            return jsonify({"error": "invalid service token"}), 403
         rows = list_recipes_service()
         return jsonify(rows)
 
